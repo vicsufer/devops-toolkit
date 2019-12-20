@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# Get crt or key files from stage.
+files=`git diff --cached --name-only | grep '.\(key\|cert\)'`
+all_encrypted=true
+for f in $files
+do
+	if `grep -Fxq '$ANSIBLE_VAULT' $f`
+	then
+		continue
+	else
+		echo "Error: Attempt to commit a non-encrypted cert or key file. -> " $f
+		all_encrypted=false
+	fi
+	
+done
+
+if $all_encrypted 
+then
+	exit 0
+else
+	exit 1
+fi
