@@ -1,0 +1,60 @@
+def awsCredentials = [[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]
+def terraformVersion = "0.12.16"
+
+
+def generateStage(environment) {
+  return {
+    stage("Test ${environment}"){
+      script{
+        sh "cd ${env.TERRAFORM_PATH}/${environment} && terraform init"
+        sh "cd ${env.TERRAFORM_PATH}/${environment} && terraform validate"
+        sh "cd ${env.TERRAFORM_PATH}/${environment} && terraform plan"
+      }
+    }
+  }
+}    
+
+
+pipeline {
+  options { 
+    buildDiscarder(logRotator(numToKeepStr: '3'))
+    withCredentials(awsCredentials)
+  }
+  agent{
+    docker {
+      image "hashicorp/terraform:${terraformVersion}"
+      args '--entrypoint='
+    }
+  }
+  environment {
+    // Project Info
+    PROJECT       = "Project name"
+    AUTHOR        = sh ( script: 'git --no-pager show -s --format="%an" ${GIT_COMMIT}', returnStdout: true ).trim()
+    SHORT_COMMIT  = sh ( script: 'git rev-parse --short=7 HEAD',returnStdout: true ).trim()
+
+    TERRAFORM_PATH = 'infrastructure/terraform'
+
+  }
+
+  stages { 
+    stage("Test environments") {
+      steps{
+        script{
+          def parallelStagesMap = [:]
+          
+          // Get environment names from terraform directory
+          def environments = sh (script: "cd ${env.TERRAFORM_PATH}" + ' && for dir in ./*;do [[ -d "$dir" ]] && echo `basename "$dir"`; done'
+            ,returnStdout: true).toString().trim().split()
+
+          // Generate environment stages
+          for(def environment in environments){
+            parallelStagesMap[environment]=generateStage(environment)
+          }
+
+          // Launch dynamic generated stages
+          parallel parallelStagesMap
+        }
+      }
+    }
+  }
+}
